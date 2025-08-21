@@ -1,10 +1,35 @@
 import streamlit as st
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+from langdetect import detect
 
-# App title
+# ---------------------------
+# Streamlit page config
+# ---------------------------
 st.set_page_config(page_title="Multilanguage Chatbot", layout="centered")
-st.title("🌐 Multilanguage Chatbot ")
+st.title("🌐 Multilanguage Chatbot")
 
+# ---------------------------
+# Language info (codes → flags + names)
+# ---------------------------
+LANG_INFO = {
+    "en": {"flag": "🇬🇧", "name": "English"},
+    "hi": {"flag": "🇮🇳", "name": "Hindi"},
+    "ta": {"flag": "🇮🇳", "name": "Tamil"},
+    "te": {"flag": "🇮🇳", "name": "Telugu"},
+    "bn": {"flag": "🇧🇩", "name": "Bengali"},
+    "ml": {"flag": "🇮🇳", "name": "Malayalam"},
+    "kn": {"flag": "🇮🇳", "name": "Kannada"},
+    "gu": {"flag": "🇮🇳", "name": "Gujarati"},
+    "mr": {"flag": "🇮🇳", "name": "Marathi"},
+    "pa": {"flag": "🇮🇳", "name": "Punjabi"},
+    "or": {"flag": "🇮🇳", "name": "Odia"},
+    "unknown": {"flag": "❓", "name": "Unknown"},
+    "not detected": {"flag": "⚪", "name": "Not Detected"}
+}
+
+# ---------------------------
+# Load IndicTrans2 model
+# ---------------------------
 @st.cache_resource
 def load_model():
     """Load the IndicTrans2 translation model."""
@@ -19,75 +44,112 @@ def load_model():
 
 translator = load_model()
 
-# Custom CSS for styling
-st.markdown("""
-    <style>
-    .stButton {
-        background-color: #4CAF50; /* Green */
-        border: none;
-        color: white;
-        padding: 15px 32px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        font-size: 16px;
-        margin: 4px 2px;
-        cursor: pointer;
-        border-radius: 12px;
-        transition: background-color 0.3s;
-    }
-    .stButton:hover {
-        background-color: #45a049;
-    }
-    .stTextArea {
-        border: 2px solid #4CAF50;
-        border-radius: 12px;
-        padding: 10px;
-    }
-    .stSelectbox {
-        border: 2px solid #4CAF50;
-        border-radius: 12px;
-        padding: 10px;
-    }
-    .footer {
-        text-align: center;
-        margin-top: 20px;
-        font-size: 14px;
-        color: #888;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# ---------------------------
+# Translation function
+# ---------------------------
+def translate_text(text, tgt_lang: str):
+    """
+    Translate text using detected source language and target language.
+    """
+    if not text.strip():
+        return None, "⚠️ Please enter some text to translate."
 
-# Sidebar: language options
-st.sidebar.header("⚙️ Settings")
-src_lang = st.sidebar.selectbox("Source Language", ["en"])
-tgt_lang = st.sidebar.selectbox("Target Language", ["hi", "ta", "te", "bn", "ml", "kn", "gu", "mr", "pa", "or"])
+    src_lang = st.session_state.get("detected_lang", None)
 
-# Input box
+    if not src_lang or src_lang in ["unknown", "not detected"]:
+        return None, "⚠️ Could not detect source language."
+
+    if src_lang == tgt_lang:
+        return None, "⚠️ Source and target languages cannot be the same."
+
+    try:
+        # Add target language token
+        if tgt_lang == "en":
+            formatted_text = f">>en<< {text}"
+        else:
+            formatted_text = f">>{tgt_lang}<< {text}"
+
+        output = translator(formatted_text)
+        return output[0]["translation_text"], None
+    except Exception as e:
+        return None, f"Unexpected error: {e}"
+
+# ---------------------------
+# Sidebar controls
+# ---------------------------
+languages = ["en", "hi", "ta", "te", "bn", "ml", "kn", "gu", "mr", "pa", "or"]
+
+# Build options with flag + code + name
+lang_options = [f"{LANG_INFO[code]['flag']} {code.upper()} ({LANG_INFO[code]['name']})" for code in languages]
+
+# Dropdown for target language
+selected_label = st.sidebar.selectbox("Target Language", lang_options, index=1)
+
+# Extract code back from label
+tgt_lang = selected_label.split(" ")[1].lower()
+
+# Show detected source language in sidebar
+if "detected_lang" not in st.session_state:
+    st.session_state.detected_lang = "not detected"
+
+detected_lang = st.session_state.detected_lang
+flag = LANG_INFO.get(detected_lang, {"flag": "❓", "name": "Unknown"})["flag"]
+name = LANG_INFO.get(detected_lang, {"flag": "❓", "name": "Unknown"})["name"]
+
+st.sidebar.markdown(f"**Detected Source:** {flag} {detected_lang.upper()} ({name})")
+
+# ---------------------------
+# Main input
+# ---------------------------
 user_text = st.text_area("✍️ Enter text to translate:", height=150)
 
-if st.button("Translate"):
-    if user_text.strip():
-        with st.spinner("Translating..."):
-            # Prepare the input for the model
-            try:
-                # Directly pass the user input to the translator
-                output = translator(user_text, src_lang=src_lang, tgt_lang=tgt_lang)
-                st.success("Translation: " + output[0]["translation_text"])
-            except AssertionError as e:
-                st.error(f"Error during translation: {e}")
-            except Exception as e:
-                st.error(f"An unexpected error occurred: {e}")
-    else:
-        st.warning("⚠️ Please enter some text to translate.")
+# Auto-detect language as user types
+if user_text.strip():
+    try:
+        detected_lang = detect(user_text)
+        st.session_state.detected_lang = detected_lang
+    except:
+        st.session_state.detected_lang = "unknown"
+else:
+    st.session_state.detected_lang = "not detected"
 
+# ---------------------------
+# Translation button + layout
+# ---------------------------
+if st.button("Translate"):
+    with st.spinner("Translating..."):
+        translation, error = translate_text(user_text, tgt_lang)
+
+        if error:
+            st.error(error)
+        else:
+            # Two-column layout like Google Translate
+            col1, col2 = st.columns(2)
+
+            with col1:
+                src_flag = LANG_INFO[st.session_state.detected_lang]["flag"]
+                src_name = LANG_INFO[st.session_state.detected_lang]["name"]
+                st.markdown(f"**Source ({src_flag} {st.session_state.detected_lang.upper()} – {src_name})**")
+                st.info(user_text)
+
+            with col2:
+                tgt_flag = LANG_INFO[tgt_lang]["flag"]
+                tgt_name = LANG_INFO[tgt_lang]["name"]
+                st.markdown(f"**Target ({tgt_flag} {tgt_lang.upper()} – {tgt_name})**")
+                st.success(translation)
+
+# ---------------------------
 # Clear button
+# ---------------------------
 if st.button("Clear"):
+    st.session_state.detected_lang = "not detected"
     st.experimental_rerun()
 
-# Footer with copyright notice
+# ---------------------------
+# Footer
+# ---------------------------
 st.markdown("""
-    <div class="footer">
+    <div style="text-align: center; margin-top: 20px; font-size: 14px; color: #888;">
         &copy; 2025 Aswinprasath V | Supported by GUVI
     </div>
 """, unsafe_allow_html=True)
