@@ -1,5 +1,5 @@
 import streamlit as st
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from langdetect import detect
 
 # ---------------------------
@@ -37,7 +37,7 @@ def load_model():
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, revision="main")
         model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True, revision="main")
-        return pipeline("translation", model=model, tokenizer=tokenizer)
+        return {"tokenizer": tokenizer, "model": model}
     except Exception as e:
         st.error(f"Error loading model: {e}")
         return None
@@ -69,8 +69,12 @@ def translate_text(text, tgt_lang: str):
         else:
             formatted_text = f">>{tgt_lang}<< {text}"
 
-        output = translator(formatted_text)
-        return output[0]["translation_text"], None
+        # Use tokenizer + model.generate
+        inputs = translator["tokenizer"](formatted_text, return_tensors="pt", padding=True)
+        outputs = translator["model"].generate(**inputs, max_length=256)
+        translation = translator["tokenizer"].decode(outputs[0], skip_special_tokens=True)
+
+        return translation, None
     except Exception as e:
         return None, f"Unexpected error: {e}"
 
