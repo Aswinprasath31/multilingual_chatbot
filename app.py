@@ -1,159 +1,82 @@
 import streamlit as st
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from langdetect import detect
+import openai  # if you use OpenAI API
 
-# ---------------------------
-# Streamlit page config
-# ---------------------------
-st.set_page_config(page_title="Multilanguage Chatbot", layout="centered")
-st.title("🌐 Multilanguage Chatbot")
-
-# ---------------------------
-# Language info (codes → flags + names)
-# ---------------------------
-LANG_INFO = {
-    "en": {"flag": "🇬🇧", "name": "English"},
-    "hi": {"flag": "🇮🇳", "name": "Hindi"},
-    "ta": {"flag": "🇮🇳", "name": "Tamil"},
-    "te": {"flag": "🇮🇳", "name": "Telugu"},
-    "bn": {"flag": "🇧🇩", "name": "Bengali"},
-    "ml": {"flag": "🇮🇳", "name": "Malayalam"},
-    "kn": {"flag": "🇮🇳", "name": "Kannada"},
-    "gu": {"flag": "🇮🇳", "name": "Gujarati"},
-    "mr": {"flag": "🇮🇳", "name": "Marathi"},
-    "pa": {"flag": "🇮🇳", "name": "Punjabi"},
-    "or": {"flag": "🇮🇳", "name": "Odia"},
-    "unknown": {"flag": "❓", "name": "Unknown"},
-    "not detected": {"flag": "⚪", "name": "Not Detected"}
-}
-
-# ---------------------------
-# Load IndicTrans2 model
-# ---------------------------
+# ---- Load models once ----
 @st.cache_resource
-def load_model():
-    """Load the IndicTrans2 translation model."""
-    model_name = "ai4bharat/indictrans2-en-indic-1B"
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, revision="main")
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True, revision="main")
-        return {"tokenizer": tokenizer, "model": model}
-    except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None
+def load_model(model_name):
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, revision="main")
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True, revision="main")
+    return tokenizer, model
 
-translator = load_model()
+tokenizer_en_indic, model_en_indic = load_model("ai4bharat/indictrans2-en-indic-1B")
+tokenizer_indic_en, model_indic_en = load_model("ai4bharat/indictrans2-indic-en-1B")
 
-# ---------------------------
-# Translation function
-# ---------------------------
-def translate_text(text, tgt_lang: str):
-    """
-    Translate text using detected source language and target language.
-    """
-    if not text.strip():
-        return None, "⚠️ Please enter some text to translate."
+# ---- Translation functions ----
+def translate(text, src, tgt):
+    """Translate text between EN and Indic languages"""
+    if src == "en" and tgt != "en":
+        tokenizer, model = tokenizer_en_indic, model_en_indic
+        formatted = f">>{tgt}<< {text}"
+    elif src != "en" and tgt == "en":
+        tokenizer, model = tokenizer_indic_en, model_indic_en
+        formatted = f">>en<< {text}"
+    elif src != "en" and tgt != "en":
+        # pivot through English
+        mid = translate(text, src, "en")
+        return translate(mid, "en", tgt)
+    else:
+        return text
 
-    src_lang = st.session_state.get("detected_lang", None)
+    inputs = tokenizer(formatted, return_tensors="pt", padding=True)
+    outputs = model.generate(**inputs, max_length=256)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-    if not src_lang or src_lang in ["unknown", "not detected"]:
-        return None, "⚠️ Could not detect source language."
+# ---- Chatbot brain (English) ----
+def ask_ai(prompt):
+    # Example with OpenAI (replace with Hugging Face if needed)
+    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    resp = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "system", "content": "You are a helpful AI assistant."},
+                  {"role": "user", "content": prompt}]
+    )
+    return resp["choices"][0]["message"]["content"]
 
-    if src_lang == tgt_lang:
-        return None, "⚠️ Source and target languages cannot be the same."
+# ---- Streamlit UI ----
+st.set_page_config(page_title="🌐 Multilingual Chatbot", layout="centered")
+st.title("🌐 Multilingual Chatbot")
 
-    try:
-        # Add target language token
-        if tgt_lang == "en":
-            formatted_text = f">>en<< {text}"
-        else:
-            formatted_text = f">>{tgt_lang}<< {text}"
+user_text = st.text_area("✍️ Ask me anything:")
 
-        # Use tokenizer + model.generate
-        inputs = translator["tokenizer"](formatted_text, return_tensors="pt", padding=True)
-        outputs = translator["model"].generate(**inputs, max_length=256)
-        translation = translator["tokenizer"].decode(outputs[0], skip_special_tokens=True)
+if st.button("Send"):
+    if user_text.strip():
+        with st.spinner("Thinking..."):
+            try:
+                # Detect language
+                detected_lang = detect(user_text)
 
-        return translation, None
-    except Exception as e:
-        return None, f"Unexpected error: {e}"
+                # Translate user text -> English
+                if detected_lang != "en":
+                    query_en = translate(user_text, detected_lang, "en")
+                else:
+                    query_en = user_text
 
-# ---------------------------
-# Sidebar controls
-# ---------------------------
-languages = ["en", "hi", "ta", "te", "bn", "ml", "kn", "gu", "mr", "pa", "or"]
+                # Get AI response in English
+                answer_en = ask_ai(query_en)
 
-# Build options with flag + code + name
-lang_options = [f"{LANG_INFO[code]['flag']} {code.upper()} ({LANG_INFO[code]['name']})" for code in languages]
+                # Translate back to user’s lang
+                if detected_lang != "en":
+                    answer_user = translate(answer_en, "en", detected_lang)
+                else:
+                    answer_user = answer_en
 
-# Dropdown for target language
-selected_label = st.sidebar.selectbox("Target Language", lang_options, index=1)
+                st.success(answer_user)
 
-# Extract code back from label
-tgt_lang = selected_label.split(" ")[1].lower()
+                st.info(f"Detected Source: {detected_lang.upper()}")
 
-# Show detected source language in sidebar
-if "detected_lang" not in st.session_state:
-    st.session_state.detected_lang = "not detected"
-
-detected_lang = st.session_state.detected_lang
-flag = LANG_INFO.get(detected_lang, {"flag": "❓", "name": "Unknown"})["flag"]
-name = LANG_INFO.get(detected_lang, {"flag": "❓", "name": "Unknown"})["name"]
-
-st.sidebar.markdown(f"**Detected Source:** {flag} {detected_lang.upper()} ({name})")
-
-# ---------------------------
-# Main input
-# ---------------------------
-user_text = st.text_area("✍️ Enter text to translate:", height=150)
-
-# Auto-detect language as user types
-if user_text.strip():
-    try:
-        detected_lang = detect(user_text)
-        st.session_state.detected_lang = detected_lang
-    except:
-        st.session_state.detected_lang = "unknown"
-else:
-    st.session_state.detected_lang = "not detected"
-
-# ---------------------------
-# Translation button + layout
-# ---------------------------
-if st.button("Translate"):
-    with st.spinner("Translating..."):
-        translation, error = translate_text(user_text, tgt_lang)
-
-        if error:
-            st.error(error)
-        else:
-            # Two-column layout like Google Translate
-            col1, col2 = st.columns(2)
-
-            with col1:
-                src_flag = LANG_INFO[st.session_state.detected_lang]["flag"]
-                src_name = LANG_INFO[st.session_state.detected_lang]["name"]
-                st.markdown(f"**Source ({src_flag} {st.session_state.detected_lang.upper()} – {src_name})**")
-                st.info(user_text)
-
-            with col2:
-                tgt_flag = LANG_INFO[tgt_lang]["flag"]
-                tgt_name = LANG_INFO[tgt_lang]["name"]
-                st.markdown(f"**Target ({tgt_flag} {tgt_lang.upper()} – {tgt_name})**")
-                st.success(translation)
-
-# ---------------------------
-# Clear button
-# ---------------------------
-if st.button("Clear"):
-    st.session_state.detected_lang = "not detected"
-    st.experimental_rerun()
-
-# ---------------------------
-# Footer
-# ---------------------------
-st.markdown("""
-    <div style="text-align: center; margin-top: 20px; font-size: 14px; color: #888;">
-        &copy; 2025 Aswinprasath V | Supported by GUVI
-    </div>
-""", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Error: {e}")
+    else:
+        st.warning("⚠️ Please enter some text.")
