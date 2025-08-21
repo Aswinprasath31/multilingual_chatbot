@@ -3,7 +3,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 
 # App title
 st.set_page_config(page_title="Multilanguage Chatbot", layout="centered")
-st.title("🌐 Multilanguage Chatbot (IndicTrans2)")
+st.title("🌐 Multilanguage Chatbot")
 
 @st.cache_resource
 def load_model():
@@ -70,9 +70,13 @@ if st.button("Translate"):
     if user_text.strip():
         with st.spinner("Translating..."):
             # Prepare the input for the model
-            input_text = f"{user_text} <=> {src_lang} => {tgt_lang}"
-            output = translator(input_text)
-            st.success("Translation: " + output[0]["translation_text"])
+            try:
+                output = translator(user_text, src_lang=src_lang, tgt_lang=tgt_lang)
+                st.success("Translation: " + output[0]["translation_text"])
+            except AssertionError as e:
+                st.error(f"Error during translation: {e}")
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
     else:
         st.warning("⚠️ Please enter some text to translate.")
 
