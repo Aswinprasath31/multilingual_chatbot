@@ -9,9 +9,13 @@ st.title("🌐 Multilanguage Chatbot (IndicTrans2)")
 def load_model():
     """Load the IndicTrans2 translation model."""
     model_name = "ai4bharat/indictrans2-en-indic-1B"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, revision="main")
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True, revision="main")
-    return pipeline("translation", model=model, tokenizer=tokenizer)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, revision="main")
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True, revision="main")
+        return pipeline("translation", model=model, tokenizer=tokenizer)
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        return None
 
 translator = load_model()
 
