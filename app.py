@@ -71,7 +71,9 @@ if st.button("Translate"):
         with st.spinner("Translating..."):
             # Prepare the input for the model
             try:
-                output = translator(user_text, src_lang=src_lang, tgt_lang=tgt_lang)
+                # Format the input for the model
+                input_text = f"{user_text} <=> {src_lang} => {tgt_lang}"
+                output = translator(input_text)
                 st.success("Translation: " + output[0]["translation_text"])
             except AssertionError as e:
                 st.error(f"Error during translation: {e}")
@@ -87,6 +89,6 @@ if st.button("Clear"):
 # Footer with copyright notice
 st.markdown("""
     <div class="footer">
-        &copy; 2023 Aswinprasath V | Supported by GUVI
+        &copy; 2025 Aswinprasath V | Supported by GUVI
     </div>
 """, unsafe_allow_html=True)
