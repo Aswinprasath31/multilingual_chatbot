@@ -3,7 +3,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 
 # App title
 st.set_page_config(page_title="Multilanguage Chatbot", layout="centered")
-st.title("🌐 Multilanguage Chatbot")
+st.title("🌐 Multilanguage Chatbot ")
 
 @st.cache_resource
 def load_model():
@@ -71,9 +71,8 @@ if st.button("Translate"):
         with st.spinner("Translating..."):
             # Prepare the input for the model
             try:
-                # Format the input for the model
-                input_text = f"{user_text} <=> {src_lang} => {tgt_lang}"
-                output = translator(input_text)
+                # Directly pass the user input to the translator
+                output = translator(user_text, src_lang=src_lang, tgt_lang=tgt_lang)
                 st.success("Translation: " + output[0]["translation_text"])
             except AssertionError as e:
                 st.error(f"Error during translation: {e}")
