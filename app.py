@@ -1,95 +1,73 @@
+# 1. IMPORT NECESSARY LIBRARIES
 import streamlit as st
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
-from langdetect import detect
+from transformers import pipeline
 
-# -----------------------
-# Streamlit UI
-# -----------------------
-st.set_page_config(page_title="Multilingual Chatbot", layout="centered")
-st.title("🌐 Multilingual Chatbot")
+# 2. SET UP THE USER INTERFACE (UI)
+st.set_page_config(layout="wide") # Use the full screen width
+st.title("GUVI Multilingual AI Chatbot 🤖")
+st.write("This chatbot can answer your questions in different languages. Select a language and ask anything!")
 
-# ✅ MBART language code mapping
+# 3. LOAD THE AI MODELS (using a cache to speed up the app)
+# This is a special Streamlit command that caches the models so they don't reload every time you do something.
+@st.cache_resource
+def load_models():
+    """Loads and returns the translation and text generation pipelines."""
+    # The translator can translate between 50 different languages.
+    translator = pipeline("translation", model="facebook/mbart-large-50-many-to-many-mnli")
+    # The generator is a standard pre-trained model for creating text.
+    generator = pipeline("text-generation", model="gpt2")
+    return translator, generator
+
+# Load the models and show a status message.
+with st.spinner("Loading AI models... This might take a moment."):
+    translator, generator = load_models()
+st.success("AI Models Loaded Successfully!")
+st.markdown("---") # Adds a horizontal line
+
+# 4. CREATE THE INTERACTIVE PART OF THE APP
+# Define the languages we support. The codes (e.g., "es_XX") are required by the translation model.
 LANG_CODE_MAP = {
-    "en": "en_XX",
-    "hi": "hi_IN",
-    "ta": "ta_IN",
-    "te": "te_IN",
-    "fr": "fr_XX",
-    "de": "de_DE",
-    "es": "es_XX",
-    "zh-cn": "zh_CN",
-    "zh-tw": "zh_TW",
-    "ar": "ar_AR",
+    "Spanish": "es_XX",
+    "French": "fr_XX",
+    "Hindi": "hi_IN",
+    "German": "de_DE",
+    "Tamil": "ta_IN" # Example of adding a regional language
 }
 
-def detect_language(text):
-    try:
-        lang = detect(text)
-        return LANG_CODE_MAP.get(lang, "en_XX")  # fallback to English
-    except Exception:
-        return "en_XX"
+# Create a dropdown menu for the user to select their language.
+selected_lang_name = st.selectbox("Select your language:", list(LANG_CODE_MAP.keys()))
+lang_code = LANG_CODE_MAP[selected_lang_name]
 
-# -----------------------
-# Load Hugging Face Models
-# -----------------------
-@st.cache_resource
-def load_translator():
-    model_name = "facebook/mbart-large-50-many-to-many-mmt"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    return pipeline("translation", model=model, tokenizer=tokenizer)
+# Create a text input box for the user's question.
+user_input = st.text_input(f"Ask your question in {selected_lang_name}...", placeholder="e.g., What is Data Science?")
 
-translator = load_translator()
+# 5. DEFINE THE CORE LOGIC
+if user_input:
+    # Show the user's original question.
+    st.subheader("Your Query:")
+    st.write(user_input)
+    
+    with st.spinner(f"Translating from {selected_lang_name} to English..."):
+        # Step A: Translate the user's input from their language to English.
+        translated_to_en = translator(user_input, src_lang=lang_code, tgt_lang="en_XX")
+        english_query = translated_to_en[0]['translation_text']
+    
+    st.info(f"**Translated to English:** {english_query}")
 
-def translate(text, src, tgt):
-    try:
-        result = translator(text, src_lang=src, tgt_lang=tgt)
-        return result[0]["translation_text"]
-    except Exception:
-        return text  # fallback
+    with st.spinner("Thinking..."):
+        # Step B: Send the English text to the GPT-2 model to get an answer.
+        # We add a prompt to guide the model's response.
+        prompt = f"Answer the following question about online courses and career development: {english_query}"
+        gpt_response = generator(prompt, max_length=150, num_return_sequences=1)
+        english_response = gpt_response[0]['generated_text']
 
-@st.cache_resource
-def load_chatbot():
-    try:
-        return pipeline("text-generation", model="tiiuae/falcon-7b-instruct", tokenizer="tiiuae/falcon-7b-instruct")
-    except Exception:
-        return pipeline("text2text-generation", model="google/flan-t5-large")
-
-chatbot = load_chatbot()
-
-def hf_answer(prompt):
-    try:
-        if "text-generation" in str(chatbot.task):
-            resp = chatbot(prompt, max_new_tokens=200, do_sample=True, temperature=0.7)
-            return resp[0]["generated_text"]
-        else:
-            resp = chatbot(prompt, max_new_tokens=200)
-            return resp[0]["generated_text"]
-    except Exception as e:
-        return f"[HF Error: {e}]"
-
-# -----------------------
-# Chat UI
-# -----------------------
-user_text = st.text_area("✍️ Ask me anything:")
-
-if user_text:
-    src_lang = detect_language(user_text)
-    st.write(f"Detected Source: **{src_lang}**")
-
-    # Translate to English
-    english_text = translate(user_text, src_lang, "en_XX")
-
-    # Get AI answer in English
-    answer_en = hf_answer(english_text)
-
-    # Translate back to user’s language
-    final_answer = translate(answer_en, "en_XX", src_lang)
-
-    # ✅ Safe mode: if translation didn’t work, show English
-    if final_answer.strip() == answer_en.strip():
-        st.success(answer_en)
-    else:
-        st.success(final_answer)
-
-st.markdown("© 2025 Aswinprasath V | Supported by GUVI")
+    st.info(f"**Bot's Response (in English):** {english_response}")
+    
+    with st.spinner(f"Translating from English to {selected_lang_name}..."):
+        # Step C: Translate the English answer back to the user's original language.
+        translated_to_orig = translator(english_response, src_lang="en_XX", tgt_lang=lang_code)
+        final_response = translated_to_orig[0]['translation_text']
+        
+    # Step D: Display the final answer in the user's language.
+    st.subheader("Final Answer:")
+    st.success(final_response)
