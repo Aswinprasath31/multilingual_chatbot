@@ -1,13 +1,4 @@
-# Core packages
 streamlit
 transformers
-sentencepiece
 torch
-langdetect
-
-# Optional - improves performance with large HF models
-accelerate
-bitsandbytes
-
-# For OpenAI backend (only if you want OpenAI option)
-openai
+sentencepiece
